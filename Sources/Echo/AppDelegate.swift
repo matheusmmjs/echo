@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let cleaner = OllamaCleaner()
     private let injector = TextInjector()
+    private let ollamaServer = OllamaServerManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -54,6 +55,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.start()
 
         requestAccessibilityIfNeeded()
+
+        statusMenuItem.title = "Iniciando Ollama..."
+        let ollamaServer = ollamaServer
+        Task {
+            await ollamaServer.ensureRunning()
+            statusMenuItem.title = "Segure Fn e fale"
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        debugLog("applicationWillTerminate chamado")
+        ollamaServer.stopIfWeStartedIt()
     }
 
     // `AXIsProcessTrustedWithOptions` com a opção de prompt: se o Echo
