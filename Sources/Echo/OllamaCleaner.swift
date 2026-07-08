@@ -4,6 +4,12 @@ import Foundation
 // limpar: remover hesitação, ajustar pontuação/capitalização, resolver
 // autocorreção falada. `URLSession` é a API padrão do Foundation pra
 // chamadas HTTP — aqui local, `localhost:11434`, sem sair da máquina.
+//
+// O prompt é sensível ao idioma de propósito: uma primeira versão sem
+// isso instruía remover "um" como palavra de preenchimento (comum em
+// inglês) e o modelo apagou o numeral "um" de "um, dois, três" em
+// português — mesma grafia, significados diferentes. Cada idioma tem sua
+// própria lista de preenchimentos.
 struct OllamaCleaner {
     private let baseURL: URL
     private let model: String
@@ -16,16 +22,21 @@ struct OllamaCleaner {
         self.model = model
     }
 
-    func clean(rawText: String) async throws -> String {
+    func clean(rawText: String, language: String) async throws -> String {
         guard !rawText.isEmpty else { return rawText }
 
+        let (languageName, fillers) = languageInfo(for: language)
         let prompt = """
-        Clean up this raw speech transcription for use as typed text: remove filler \
-        words and false starts, fix punctuation and capitalization, resolve spoken \
-        self-corrections (e.g. "let's meet Tuesday, actually Wednesday" becomes \
-        "let's meet Wednesday"). Keep the original language and meaning. Return ONLY \
-        the cleaned text, nothing else, no quotes, no explanation.
+        You are a transcript cleanup tool, not a writer. The text is in \(languageName). Follow these rules strictly:
+        1. Remove these filler words/sounds if present: \(fillers). Do not remove any other word, even if it looks similar.
+        2. Remove false starts and stutters.
+        3. Fix punctuation and capitalization only.
+        4. If the speaker corrects themselves mid-sentence (e.g. "meet Tuesday, actually Wednesday"), keep only the corrected version.
+        5. Do NOT paraphrase, reword, summarize, or change word choice. Every word that is not a filler, false start, or discarded correction must appear in the output exactly as spoken, in \(languageName).
+        6. Do NOT add words that were not said. Do NOT translate.
+        7. Return ONLY the cleaned text. No quotes, no explanation, no preface.
 
+        Now clean this:
         Raw: \(rawText)
         """
 
@@ -33,6 +44,7 @@ struct OllamaCleaner {
             "model": model,
             "prompt": prompt,
             "stream": false,
+            "options": ["temperature": 0],
         ]
 
         var request = URLRequest(url: baseURL.appendingPathComponent("/api/generate"))
@@ -49,5 +61,14 @@ struct OllamaCleaner {
         }
 
         return response.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func languageInfo(for language: String) -> (name: String, fillers: String) {
+        switch language {
+        case "pt":
+            return ("Portuguese", "né, tipo, sabe, ahn, hã, éh")
+        default:
+            return ("English", "um, uh, like, you know")
+        }
     }
 }

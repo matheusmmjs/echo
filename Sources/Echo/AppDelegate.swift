@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 debugLog("Transcrição bruta: \(rawText)")
 
                 statusMenuItem.title = "Limpando..."
-                let cleanText = (try? await cleaner.clean(rawText: rawText)) ?? rawText
+                let cleanText = (try? await cleaner.clean(rawText: rawText, language: "pt")) ?? rawText
                 debugLog("Texto limpo: \(cleanText)")
 
                 injector.paste(cleanText)
