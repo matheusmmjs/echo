@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 // NSApplicationDelegate: protocolo que recebe eventos do ciclo de vida do
 // app (terminou de abrir, vai fechar, etc). Todo app AppKit tem um delegate
@@ -27,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         primary: AppleSpeechEngine(),
         fallback: WhisperCppEngine()
     )
+    private let cleaner = OllamaCleaner()
+    private let injector = TextInjector()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -49,6 +52,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.onFnDown = { [weak self] in self?.startRecording() }
         hotkey.onFnUp = { [weak self] in self?.stopRecordingAndTranscribe() }
         hotkey.start()
+
+        requestAccessibilityIfNeeded()
+    }
+
+    // `AXIsProcessTrustedWithOptions` com a opção de prompt: se o Echo
+    // ainda não tem permissão de Accessibility, o macOS mostra o alerta
+    // do sistema pedindo pra você liberar em System Settings. Sem isso,
+    // `CGEvent.post` (usado pelo TextInjector pra simular Cmd+V) não tem
+    // efeito nenhum, silenciosamente.
+    private func requestAccessibilityIfNeeded() {
+        // Valor documentado da constante kAXTrustedCheckOptionPrompt.
+        // Usamos a string literal porque a constante em si é um global C
+        // não-Sendable, e o Swift 6 barra acesso direto a isso num
+        // contexto @MainActor.
+        let options: [String: Any] = ["AXTrustedCheckOptionPrompt": true]
+        _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 
     private func startRecording() {
@@ -72,16 +91,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let fileURL = recorder.stop() else { return }
         statusMenuItem.title = "Transcrevendo..."
 
-        // Cópia local: evita capturar `self` (MainActor-isolated) dentro
-        // da closure do Task abaixo — só o motor (sem estado mutável)
-        // precisa atravessar essa fronteira.
+        // Cópias locais: evita capturar `self` (MainActor-isolated) dentro
+        // da closure do Task abaixo — só valores sem estado mutável
+        // precisam atravessar essa fronteira.
         let engine = sttEngine
+        let cleaner = cleaner
+        let injector = injector
 
         Task {
+            // O áudio só serve pra esse momento — apaga depois de usar,
+            // sucesso ou falha, pra não acumular lixo em /tmp.
+            defer { try? FileManager.default.removeItem(at: fileURL) }
             do {
-                let text = try await engine.transcribe(audioFileURL: fileURL, language: "pt")
-                debugLog("Transcrição: \(text)")
-                statusMenuItem.title = text.isEmpty ? "Nada reconhecido" : text
+                let rawText = try await engine.transcribe(audioFileURL: fileURL, language: "pt")
+                guard !rawText.isEmpty else {
+                    statusMenuItem.title = "Nada reconhecido"
+                    return
+                }
+                debugLog("Transcrição bruta: \(rawText)")
+
+                statusMenuItem.title = "Limpando..."
+                let cleanText = (try? await cleaner.clean(rawText: rawText)) ?? rawText
+                debugLog("Texto limpo: \(cleanText)")
+
+                injector.paste(cleanText)
+                statusMenuItem.title = cleanText
             } catch {
                 debugLog("Transcrição falhou: \(error)")
                 statusMenuItem.title = "Erro na transcrição"
