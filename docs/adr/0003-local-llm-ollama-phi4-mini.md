@@ -20,7 +20,7 @@ Usar **Ollama** (local, `localhost:11434`, versão atual v0.30.8) rodando **Phi-
 
 ## Consequências
 - Cabe confortavelmente em 8GB ao lado de outros apps do dia a dia.
-- Qualidade de reescrita é boa pra tarefa repetitiva (limpar texto), mas inferior a modelos maiores em casos ambíguos/complexos (ex: reescrita criativa) — aceitável, essa tarefa é simples por natureza. Observado também: o modelo às vezes reescreve/parafraseia em vez de só limpar (ex: muda "fiz isso que você falou" pra "fiz tudo o que você pediu") — não é crítico pro MVP, mas é candidato a ajuste de prompt futuro se incomodar no uso real.
+- Qualidade de reescrita é boa pra tarefa repetitiva (limpar texto), mas inferior a modelos maiores em casos ambíguos/complexos (ex: reescrita criativa) — aceitável, essa tarefa é simples por natureza.
 - Deixa margem de RAM pro objetivo do usuário de ter o agente sempre ativo em background enquanto usa outras ferramentas.
 
 ## Atualização: `OLLAMA_KEEP_ALIVE` (teste end-to-end, issue #6/#7)
@@ -29,4 +29,10 @@ A decisão original era manter `OLLAMA_KEEP_ALIVE` baixo (poucos minutos) pra li
 
 Dado que o objetivo do usuário é um agente de voz **sempre disponível e instantâneo** (não um script batch), decidido trocar pra `OLLAMA_KEEP_ALIVE=30m` — mantém o modelo carregado por meia hora de inatividade antes de descarregar. Troca RAM ociosa (~2.5GB presos por mais tempo) por latência consistente, que é o que importa pra uma ferramenta de ditado usada o dia todo.
 
-Pendência conhecida: hoje isso depende de iniciar o `ollama serve` manualmente com essa flag toda sessão. Automatizar isso (o próprio Echo gerenciar o processo do Ollama, ou um LaunchAgent) é candidato pra um follow-up, não bloqueia o MVP.
+Pendência resolvida: `OllamaServerManager` faz o Echo subir/derrubar o `ollama serve` sozinho com essas flags, sem depender de terminal.
+
+## Atualização: prompt de limpeza sensível ao idioma
+
+Testes com transcrições reais mostraram dois problemas no prompt original de limpeza: (1) o modelo parafraseava em vez de só limpar (mudava "fiz isso que você falou" pra "fiz tudo o que você pediu"), e (2) uma instrução genérica de "remover palavras de preenchimento" fez o modelo apagar o numeral "um" de "um, dois, três" em português, confundindo com a palavra de preenchimento em inglês "um" — mesma grafia, significado diferente, sem contexto de idioma no prompt.
+
+Corrigido passando o idioma da transcrição pro `OllamaCleaner`, com lista de preenchimentos própria por idioma (inglês: um/uh/like/you know; português: né/tipo/sabe/ahn/hã/éh — sem "um"), regra explícita de "não parafrasear", e `temperature: 0` pra reduzir variação. Validado contra 4 amostras reais (PT/EN) antes de adotar.
