@@ -12,7 +12,8 @@ if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--test-stt" {
     // (que também funcionaria, mas é mais código pra o mesmo resultado).
     let fileURL = URL(fileURLWithPath: CommandLine.arguments[2])
     let language = CommandLine.arguments[3]
-    let engine = WhisperCppEngine()
+    let engineChoice = CommandLine.arguments.count >= 5 ? CommandLine.arguments[4] : "whisper"
+    let engine: STTEngine = engineChoice == "apple" ? AppleSpeechEngine() : WhisperCppEngine()
 
     do {
         let text = try await engine.transcribe(audioFileURL: fileURL, language: language)
