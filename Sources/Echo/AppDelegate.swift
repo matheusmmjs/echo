@@ -19,12 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkey = HotkeyMonitor()
     private let recorder = AudioRecorder()
 
-    // Nesta fase testamos os dois motores lado a lado no mesmo áudio
-    // gravado, pra comparar com voz real (ver ADR 0002 / issue #6).
+    // Apple como padrão, whisper.cpp como fallback silencioso — decisão
+    // tomada com benchmark real nas gravações desta sessão (ver ADR 0002).
     // Pipeline final (limpeza via Ollama + paste) ainda não está aqui —
-    // isso é o próximo passo, depois de validar hotkey + gravação + STT.
-    private let whisperEngine = WhisperCppEngine()
-    private let appleEngine = AppleSpeechEngine()
+    // isso é o próximo passo.
+    private let sttEngine: any STTEngine = FallbackSTTEngine(
+        primary: AppleSpeechEngine(),
+        fallback: WhisperCppEngine()
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -70,30 +72,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let fileURL = recorder.stop() else { return }
         statusMenuItem.title = "Transcrevendo..."
 
-        // Cópias locais: evita capturar `self` (MainActor-isolated) dentro
-        // das closures concorrentes do `async let` abaixo — só os motores
-        // (structs, sem estado mutável) precisam atravessar essa fronteira.
-        let whisper = whisperEngine
-        let apple = appleEngine
+        // Cópia local: evita capturar `self` (MainActor-isolated) dentro
+        // da closure do Task abaixo — só o motor (sem estado mutável)
+        // precisa atravessar essa fronteira.
+        let engine = sttEngine
 
-        debugLog("1: task starting, file=\(fileURL.path)")
         Task {
-            debugLog("2: entered Task, calling whisper")
-            let whisperText = await withTimeout(seconds: 20) {
-                try await whisper.transcribe(audioFileURL: fileURL, language: "pt")
+            do {
+                let text = try await engine.transcribe(audioFileURL: fileURL, language: "pt")
+                debugLog("Transcrição: \(text)")
+                statusMenuItem.title = text.isEmpty ? "Nada reconhecido" : text
+            } catch {
+                debugLog("Transcrição falhou: \(error)")
+                statusMenuItem.title = "Erro na transcrição"
             }
-            debugLog("3: whisper done -> \(whisperText ?? "nil")")
-
-            let appleText = await withTimeout(seconds: 20) {
-                try await apple.transcribe(audioFileURL: fileURL, language: "pt")
-            }
-            debugLog("4: apple done -> \(appleText ?? "nil")")
-
-            let whisperLine = "whisper.cpp: \(whisperText ?? "(falhou/timeout)")"
-            let appleLine = "Apple: \(appleText ?? "(falhou/timeout)")"
-
-            debugLog("STT comparison - \(whisperLine) | \(appleLine)")
-            statusMenuItem.title = appleText ?? whisperText ?? "Nada reconhecido"
         }
     }
 }
