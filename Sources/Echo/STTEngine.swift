@@ -4,7 +4,7 @@ import Foundation
 // SpeechAnalyzer — ver ADR 0002). Um "protocol" em Swift é equivalente a
 // uma interface: descreve o que um tipo faz, sem amarrar a como ele faz.
 // Doc: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/protocols/
-protocol STTEngine {
+protocol STTEngine: Sendable {
     /// Nome legível pra logs e comparação entre motores.
     var name: String { get }
 
